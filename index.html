@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conway's Game of Life</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Cell Animations */
+    #grid div {
+      transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .cell-alive {
+      background-color: #22c55e; /* Green */
+      transform: scale(1.1);
+    }
+    .cell-dead {
+      background-color: #ffffff; /* White */
+      transform: scale(1);
+    }
+    .cell-reborn {
+      background-color: #a855f7; /* Purple */
+      transform: scale(1.2);
+    }
+    .cell-dying {
+      background-color: #ef4444; /* Red */
+      transform: scale(0.9);
+    }
+
+    /* Play/Pause Button Animation */
+    button {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    button:active {
+      transform: scale(0.95);
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    }
+    #play.playing {
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% {
+        box-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
+      }
+      50% {
+        box-shadow: 0 0 15px rgba(34, 197, 94, 0.8);
+      }
+    }
+
+    /* Smooth Grid Update Animation */
+    #grid {
+      animation: fadeIn 0.5s ease;
+    }
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    /* Legend Hover Animation */
+    .legend div:hover {
+      transform: scale(1.1);
+      transition: transform 0.2s ease, background-color 0.2s ease;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans flex flex-col items-center py-8">
+  <h1 class="text-4xl font-extrabold mb-8 text-center text-cyan-400">Conway's Game of Life</h1>
+
+  <div class="controls flex flex-wrap items-center justify-center gap-6 mb-8 p-4 bg-gray-800 rounded shadow-md">
+    <button id="play" class="bg-cyan-500 hover:bg-cyan-600 focus:ring-2 focus:ring-cyan-400 text-white font-medium py-2 px-4 rounded">Play</button>
+    <button id="pause" class="bg-yellow-500 hover:bg-yellow-600 focus:ring-2 focus:ring-yellow-400 text-white font-medium py-2 px-4 rounded">Pause</button>
+    <button id="next" class="bg-green-500 hover:bg-green-600 focus:ring-2 focus:ring-green-400 text-white font-medium py-2 px-4 rounded">Next Frame</button>
+    <button id="previous" class="bg-red-500 hover:bg-red-600 focus:ring-2 focus:ring-red-400 text-white font-medium py-2 px-4 rounded">Previous Frame</button>
+    <div class="flex items-center gap-2">
+      <label for="speed" class="text-sm font-medium text-gray-300">Speed:</label>
+      <input type="range" id="speed" min="100" max="2000" step="100" value="500" class="w-48 accent-cyan-400">
+    </div>
+    <div class="flex items-center gap-2">
+      <label for="size" class="text-sm font-medium text-gray-300">Grid Size:</label>
+      <input type="number" id="size" min="3" max="20" value="5" class="border border-gray-700 rounded px-2 py-1 w-16 bg-gray-700 text-gray-100">
+      <button id="updateSizeBtn" class="bg-purple-500 hover:bg-purple-600 focus:ring-2 focus:ring-purple-400 text-white font-medium py-1 px-3 rounded">Update</button>
+    </div>
+  </div>
+
+  <div id="grid" class="grid gap-1 bg-gray-800 p-4 rounded shadow-md"></div>
+
+  <div class="legend mt-8 text-center">
+    <h2 class="text-2xl font-bold mb-4 text-cyan-300">Legend</h2>
+    <div class="flex flex-wrap justify-center gap-6">
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 bg-green-500 border border-gray-700 rounded"></div>
+        <span>Live Cell</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 bg-red-500 border border-gray-700 rounded"></div>
+        <span>Dead Cell</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 bg-purple-500 border border-gray-700 rounded"></div>
+        <span>Reborn Cell</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 bg-white border border-gray-700 rounded"></div>
+        <span>Empty Cell</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="rules mt-8 text-center">
+    <h2 class="text-2xl font-bold mb-4 text-cyan-300">Rules</h2>
+    <ul class="list-disc list-inside text-left text-gray-300 max-w-prose mx-auto">
+      <li>Any live cell with fewer than two live neighbors dies (underpopulation).</li>
+      <li>Any live cell with two or three live neighbors survives to the next generation.</li>
+      <li>Any live cell with more than three live neighbors dies (overpopulation).</li>
+      <li>Any dead cell with exactly three live neighbors becomes a live cell (reproduction).</li>
+    </ul>
+  </div>
+
+  <div class="stats mt-8 text-center text-gray-300">
+    <p>Live Cells: <span id="live-count" class="text-cyan-400">0</span></p>
+    <p>Empty Cells: <span id="empty-count" class="text-cyan-400">0</span></p>
+  </div>
+
+  <script>
+    const gridContainer = document.getElementById('grid');
+    const sizeElement = document.getElementById('size');
+    const updateSizeBtn = document.getElementById('updateSizeBtn');
+    const playBtn = document.getElementById('play');
+    const pauseBtn = document.getElementById('pause');
+    const nextFrameBtn = document.getElementById('next');
+    const speedSlider = document.getElementById('speed');
+
+    let gridSize = parseInt(sizeElement.value);
+    let grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+    let interval = null;
+    let speed = parseInt(speedSlider.value);
+
+    speedSlider.addEventListener('input', () => {
+      speed = parseInt(speedSlider.value);
+      if (interval) {
+        clearInterval(interval);
+        interval = setInterval(nextFrame, speed);
+      }
+    });
+
+    function createGrid(size) {
+      gridSize = size;
+      grid = Array.from({ length: size }, () => Array(size).fill(0));
+      gridContainer.style.gridTemplateColumns = `repeat(${size}, 24px)`;
+      gridContainer.style.gridTemplateRows = `repeat(${size}, 24px)`;
+      gridContainer.innerHTML = '';
+      gridContainer.classList.remove('fadeIn');
+      void gridContainer.offsetWidth; // Trigger reflow to restart animation
+      gridContainer.classList.add('fadeIn');
+
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const cell = document.createElement('div');
+          cell.className = 'w-6 h-6 border border-gray-600 bg-gray-700 cursor-pointer rounded';
+          cell.addEventListener('click', () => toggleCell(row, col));
+          gridContainer.appendChild(cell);
+        }
+      }
+      updateGridDisplay();
+    }
+
+    function toggleCell(row, col) {
+      grid[row][col] = grid[row][col] === 1 ? 0 : 1;
+      updateGridDisplay();
+    }
+
+    function updateGridDisplay() {
+      const cells = gridContainer.children;
+      let live = 0, empty = 0;
+
+      for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+          const cell = cells[row * gridSize + col];
+          cell.className = 'w-6 h-6 border border-gray-600 rounded'; // Reset base class
+          switch (grid[row][col]) {
+            case 0: // Dead
+              cell.classList.add('cell-dead');
+              empty++;
+              break;
+            case 1: // Alive
+              cell.classList.add('cell-alive');
+              live++;
+              break;
+            case 2: // Reborn
+              cell.classList.add('cell-reborn');
+              grid[row][col] = 1; // Transition to alive after one frame
+              live++;
+              break;
+            case 3: // Dying
+              cell.classList.add('cell-dying');
+              grid[row][col] = 0; // Transition to dead after one frame
+              empty++;
+              break;
+          }
+        }
+      }
+
+      document.getElementById('live-count').textContent = live;
+      document.getElementById('empty-count').textContent = empty;
+    }
+
+    let gridHistory = []; // Array to store grid states
+
+    function nextFrame() {
+      gridHistory.push(JSON.parse(JSON.stringify(grid)));
+      if (gridHistory.length > 100) gridHistory.shift();
+
+      const nextGrid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+      for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+          const neighbors = countNeighbors(row, col);
+          if (grid[row][col] === 1) {
+            nextGrid[row][col] = neighbors === 2 || neighbors === 3 ? 1 : 3; // Alive to dying
+          } else if (grid[row][col] === 0) {
+            nextGrid[row][col] = neighbors === 3 ? 2 : 0; // Dead to reborn or stay dead
+          }
+        }
+      }
+      grid = nextGrid;
+      updateGridDisplay();
+    }
+
+    function previousFrame() {
+      if (gridHistory.length > 0) {
+        grid = gridHistory.pop();
+        updateGridDisplay();
+      } else {
+        console.log("No previous state available!");
+      }
+    }
+
+    document.getElementById('previous').addEventListener('click', previousFrame);
+
+    function countNeighbors(row, col) {
+      const directions = [
+        [-1, -1], [-1, 0], [-1, 1],
+        [0, -1],           [0, 1],
+        [1, -1], [1, 0], [1, 1],
+      ];
+      let count = 0;
+      directions.forEach(([dx, dy]) => {
+        const newRow = row + dx;
+        const newCol = col + dy;
+        if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+          count += grid[newRow][newCol];
+        }
+      });
+      return count;
+    }
+
+    playBtn.addEventListener('click', () => {
+      if (!interval) {
+        interval = setInterval(nextFrame, speed);
+        playBtn.classList.add('playing');
+      }
+    });
+
+    pauseBtn.addEventListener('click', () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+        playBtn.classList.remove('playing');
+      }
+    });
+
+    nextFrameBtn.addEventListener('click', nextFrame);
+
+    updateSizeBtn.addEventListener('click', () => createGrid(parseInt(sizeElement.value)));
+
+    createGrid(gridSize);
+  </script>
+</body>
+</html>
